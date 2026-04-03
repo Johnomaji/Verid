@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── INSPECTOR ────────────────────────────────────────────────────────────────
+
+model Inspector {
+  id           String        @id @default(cuid())
+  walletAddress String       @unique
+  name         String
+  certNumber   String        @unique
+  region       String
+  stakedAmount Float         @default(0)   // reputation tokens staked
+  slashCount   Int           @default(0)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  attestations Attestation[]
+}
+
+// ─── WAREHOUSE ────────────────────────────────────────────────────────────────
+
+model Warehouse {
+  id           String    @id @default(cuid())
+  name         String
+  operatorWallet String
+  location     String
+  country      String
+  gpsLat       Float
+  gpsLng       Float
+  rating       Int       @default(3)    // 1–5 star warehouse rating
+  isApproved   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  receipts     Receipt[]
+}
+
+// ─── ATTESTATION (Layer 01) ────────────────────────────────────────────────────
+
+model Attestation {
+  id               String      @id @default(cuid())
+  inspectorId      String
+  inspector        Inspector   @relation(fields: [inspectorId], references: [id])
+  warehouseId      String
+  commodityType    String      // "cocoa" | "sesame" | "grain" | "coffee"
+  quantityKg       Float
+  qualityGrade     String      // "A" | "B" | "C"
+  gpsLat           Float
+  gpsLng           Float
+  photoIpfsHash    String?     // IPFS CID of inspection photos
+  signatureHash    String      // cryptographic signature hash
+  onChainTxId      String?     // Solana tx signature once anchored
+  status           AttestationStatus @default(PENDING)
+  isDisputed       Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  verifiedAt       DateTime?
+  receipt          Receipt?
+}
+
+enum AttestationStatus {
+  PENDING
+  VERIFIED
+  DISPUTED
+  REJECTED
+}
+
+// ─── RECEIPT TOKEN (Layer 02) ─────────────────────────────────────────────────
+
+model Receipt {
+  id               String      @id @default(cuid())
+  attestationId    String      @unique
+  attestation      Attestation @relation(fields: [attestationId], references: [id])
+  warehouseId      String
+  warehouse        Warehouse   @relation(fields: [warehouseId], references: [id])
+  mintAddress      String      @unique    // SPL token mint address on Solana
+  ownerWallet      String
+  commodityType    String
+  quantityKg       Float
+  faceValueUsd     Float
+  isEncumbered     Boolean     @default(false)
+  encumbranceShare Float       @default(0)  // 0–1, partial pledging
+  expiresAt        DateTime
+  createdAt        DateTime    @default(now())
+  lienRecords      LienRecord[]
+  loanPositions    LoanPosition[]
+}
+
+// ─── LIEN REGISTRY (Layer 02) ─────────────────────────────────────────────────
+
+model LienRecord {
+  id           String   @id @default(cuid())
+  receiptId    String
+  receipt      Receipt  @relation(fields: [receiptId], references: [id])
+  lenderWallet String
+  amountUsd    Float
+  sharePercent Float    // what fraction of receipt is pledged
+  onChainTxId  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  settledAt    DateTime?
+}
+
+// ─── LENDING POOL (Layer 03) ──────────────────────────────────────────────────
+
+model LendingPool {
+  id             String         @id @default(cuid())
+  name           String
+  managerWallet  String
+  totalDepositUsd Float         @default(0)
+  availableLiquidity Float      @default(0)
+  utilizationRate Float         @default(0)
+  createdAt      DateTime       @default(now())
+  loanPositions  LoanPosition[]
+}
+
+model LoanPosition {
+  id              String      @id @default(cuid())
+  poolId          String
+  pool            LendingPool @relation(fields: [poolId], references: [id])
+  receiptId       String
+  receipt         Receipt     @relation(fields: [receiptId], references: [id])
+  borrowerWallet  String
+  principalUsd    Float
+  ltvRatio        Float       // e.g. 0.70 = 70% LTV
+  interestRateBps Int         // basis points
+  dueAt           DateTime
+  status          LoanStatus  @default(ACTIVE)
+  onChainTxId     String?
+  createdAt       DateTime    @default(now())
+  repaidAt        DateTime?
+}
+
+enum LoanStatus {
+  ACTIVE
+  REPAID
+  DEFAULTED
+  LIQUIDATED
+}
+
+// ─── KYC / IDENTITY ───────────────────────────────────────────────────────────
+
+model KycRecord {
+  id            String    @id @default(cuid())
+  walletAddress String    @unique
+  role          UserRole
+  fullName      String
+  entityName    String?   // for KYB
+  country       String
+  status        KycStatus @default(PENDING)
+  createdAt     DateTime  @default(now())
+  reviewedAt    DateTime?
+}
+
+enum UserRole {
+  INSPECTOR
+  WAREHOUSE_OPERATOR
+  LENDER
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
