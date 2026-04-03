@@ -1,0 +1,17 @@
+[package]
+name    = "receipt-mint"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "receipt_mint"
+
+[features]
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+
+[dependencies]
+anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.30.1", features = ["token", "associated_token", "metadata"] }
+attestation = { path = "../attestation", features = ["cpi"] }
